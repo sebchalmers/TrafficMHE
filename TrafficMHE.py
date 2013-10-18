@@ -27,22 +27,23 @@ import matplotlib.pyplot as plt
 from matplotlib import interactive
 interactive(True)
 
+
 import TrafficFlow
 reload(TrafficFlow)
 from TrafficFlow import *
 
-Horizon = 20
-T = FreeWay(Path = 'incident data_correct VMS', Slacks = ['Salpha','Sbeta'], Meas = ['rho','v'])
+Horizon = 10
+T = FreeWay(Path = 'incident data_correct VMS', Meas = ['rho','v'], Slacks = ['Salpha','Sbeta'])
 
-SimTime = 400
+SimTime = 800
 
 # vv_3lane   -> speed (v)
 # rr_3lane/3 -> density (rho)
 # VMS_d      -> variable speed limit 0> Ve = min
 
-Q = {'rho': 1/100., 'v': 1/100.}
+Q = {'rho': 1., 'v': 1.}
 
-Costs = {'Stage': 0, 'Arrival': 0, 'Terminal': 0}
+Costs = {'Stage': 0, 'Terminal': 0, 'Arrival': 0}
 Const = []
 for key in Costs.keys():
     for i in range(T.NumSegment): 
@@ -51,17 +52,21 @@ for key in Costs.keys():
         Costs[key] += Q['rho']*(T.VSpace['States']['Segment',i,'rho'] - T.Meas['Segment',i,'rho'])**2  
         Costs[key] += Q[  'v']*(T.VSpace['States']['Segment',i,  'v'] - T.Meas['Segment',i,  'v'])**2 
     
-        dalpha = T.VSpace['Inputs']['Segment',i,'alpha'] - T.VSpacePrev['Inputs']['Segment',i,'alpha']
-        dbeta  = T.VSpace['Inputs']['Segment',i, 'beta'] - T.VSpacePrev['Inputs']['Segment',i, 'beta']
-    
-        if key == 'Stage': 
+        if key == 'Stage':
+            dalpha = T.VSpace['Inputs']['Segment',i,'alpha'] - T.VSpacePrev['Inputs']['Segment',i,'alpha']
+            dbeta  = T.VSpace['Inputs']['Segment',i, 'beta'] - T.VSpacePrev['Inputs']['Segment',i, 'beta']
             #Costs[key] += dalpha**2
             #Costs[key] += dbeta**2
-            
+             
             Const.append(-dbeta  - T.VSpace['Slacks']['Segment',i, 'Sbeta']) # <= 0 
             Const.append( dbeta  - T.VSpace['Slacks']['Segment',i, 'Sbeta']) # <= 0
             Const.append(-dalpha - T.VSpace['Slacks']['Segment',i,'Salpha']) # <= 0 
             Const.append( dalpha - T.VSpace['Slacks']['Segment',i,'Salpha']) # <= 0
+            
+        if key == 'Arrival':
+            Costs[key] += T.VSpace['States']['Segment',i,'rho'] - T.VSpacePrev['States']['Segment',i,'rho']
+            Costs[key] += T.VSpace['States']['Segment',i,  'v'] - T.VSpacePrev['States']['Segment',i,  'v']
+
         
             
     T.setCost(Costs[key], Type = key)
@@ -81,7 +86,8 @@ TrafficParameters = { 'a'     :   4.04,
                       'vfree' : 107.11}
 
 #Assign initial Data and Parameters
-Data, EPData = T.GenerateData(VStruct = T.VSim(), EPStruct = T.EPSim(), ExtParam = TrafficParameters, Simulated = True)
+Data, EPData = T.GenerateData(VStruct = T.VSim(), EPStruct = T.EPSim(), ExtParam = TrafficParameters, Simulated = False)#, AddNoise = True)
+
 
 #Set variable bounds & initial guess
 init = T.V()
@@ -95,17 +101,20 @@ for key in ['f','r']:
 
 #Bounds on alpha, beta
 for key in ['alpha', 'beta']:
-    lbV['Inputs',:,'Segment',:,key] = 0.
-    ubV['Inputs',:,'Segment',:,key] = 1.
+    lbV['Inputs',:,'Segment',:,key] = 0#-0.01
+    ubV['Inputs',:,'Segment',:,key] = 1# 1.01
 
 lbV['Slacks'] = 0.
 lbV['States'] = 0.
 
+print "HIT RETURN TO LAUNCH MHE"
+raw_input()
 #################################
 
 init, EP = T.PassMHEData(Data = Data, EP = EPData, ExtParam = TrafficParameters, time = 0)
 
 MHETraj = T.VSim()
+StatusLog = []
 for time in range(SimTime):
     print time
 
@@ -118,15 +127,16 @@ for time in range(SimTime):
     #    Error.append(veccat(EP['Meas',:,'Segment',i,'rho']) - veccat(init['States',:,'Segment',i,'rho']))
     #
     #assert(time == 0)
-    X, Mu = T.SolveMHE(EP = EP, lbV = lbV, ubV = ubV, init = init)
-
-    ##Display
-    #timeDisp = {'Sim'      : [k      for k in range(SimTime)    ],
-    #            'MHEState' : [k+time for k in range(Horizon)    ],
-    #            'MHEInput' : [k+time for k in range(Horizon-1)  ],
-    #            'Data'     : [k      for k in range(Horizon+SimTime) ]}
-    #
-    #if (time > 22):
+    X, Mu, Status = T.SolveMHE(EP = EP, lbV = lbV, ubV = ubV, init = init)
+    StatusLog.append(Status)
+    
+    #Display
+    timeDisp = {'Sim'      : [k      for k in range(SimTime)    ],
+                'MHEState' : [k+time for k in range(Horizon)    ],
+                'MHEInput' : [k+time for k in range(Horizon-1)  ],
+                'Data'     : [k      for k in range(Horizon+SimTime) ]}
+    
+    #if (time > -1):
     #    plt.close('all')
     #    for i in range(T.NumSegment):
     #        plt.figure(i+1)
@@ -151,6 +161,7 @@ for time in range(SimTime):
     #        plt.grid()
     #    plt.legend()
     #    raw_input()
+    #    assert(0==1)
 
 
     MHETraj[...,time] = X[...,0]
@@ -178,6 +189,7 @@ for i in range(T.NumSegment):
     
     plt.plot(timeDisp['Sim'],      MHETraj['States',:SimTime,'Segment',i,'v'],color = 'r',linewidth = 2)
     plt.plot(timeDisp['Sim'],      Data['States',:SimTime,'Segment',i,'v'],color = 'g')
+    plt.plot(timeDisp['Sim'],     T.Data['VMS_d'][:SimTime,3*i],color = 'k')
     plt.title('v')
     
     plt.subplot(2,1,2)
@@ -201,6 +213,10 @@ for i in range(1,T.NumSegment-1):
     plt.ylim([-0.1,1.1])
     plt.grid()
 plt.legend()
+
+plt.figure(99)
+plt.plot(StatusLog, linestyle = 'none', marker = '.',color = 'k')
+plt.ylim([-0.2,1.2])
 raw_input()
     
 #

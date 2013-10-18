@@ -29,6 +29,7 @@ import numpy as np
 import scipy.special as sc_spec
 from scipy import linalg
 import scipy.io
+import random as rand
 
 import matplotlib.pyplot as plt
 from pylab import matshow
@@ -60,10 +61,10 @@ def _setSolver(self, V,Cost,g,P):
     # set-up solver
     solver = IpoptSolver(nl)  
     solver.setOption("expand",True)
-    #solver.setOption("print_level",1)  
+    solver.setOption("print_level",0)  
     solver.setOption("hessian_approximation","exact")
-    solver.setOption("max_iter",1000)
-    solver.setOption("tol",1e-6)
+    solver.setOption("max_iter",1500)
+    solver.setOption("tol",1e-3)
     solver.setOption("linear_solver","ma27")
     
     solver.init()
@@ -132,11 +133,7 @@ class FreeWay:
         GlobalParams  = struct_ssym(['vfree', 'kappa', 'tau', 'a', 'rho_cr', 'eta', 'T', 'delta'])
         Li            = struct_ssym(['L'])
         
-        #External parameters
-        self.Param  = struct_msym([
-                                        entry('Global',  struct = GlobalParams),
-                                        entry('Dist',    struct = Li,   repeat = self.NumSegment)
-                                  ])
+
                 
         #Build structure to hold the data (will merge into EP)
         if not(Meas == []):
@@ -168,6 +165,15 @@ class FreeWay:
         for var in self.VStruct.keys():  
             self.VSpace[var]     = struct_msym([entry('Segment', struct = self.VStruct[var],   repeat = self.NumSegment)])
             self.VSpacePrev[var] = struct_msym([entry('Segment', struct = self.VStruct[var],   repeat = self.NumSegment)])
+        
+        #Create Structure for External parameters
+        self.Param  = struct_msym([
+                                        entry('Global',  struct = GlobalParams                                      ),
+                                        entry('States0', struct = self.VSpace['States']                             ),
+                                        entry('Inputs0', struct = self.VSpace['Inputs']                             ),
+                                        entry('Dist',    struct = Li,                      repeat = self.NumSegment )
+                                  ])
+        
         
         T      = self.Param['Global',     'T']
         a      = self.Param['Global',     'a']
@@ -214,7 +220,7 @@ class FreeWay:
             
             Dyn.append(     v_i + T*(beta_i*Ve_i - v_i)/tau    \
                                 + T*v_i*(v_im - v_i)/Li  \
-                                - beta_i*(1 - alpha_i)*(eta*T)*(rho_ip - rho_i)/(rho_i - kappa)/(tau*Li)         \
+                                - beta_i*(1 - alpha_i)*(eta*T)*(rho_ip - rho_i)/(rho_i + kappa)/(tau*Li)         \
                                 - delta*T*r_i*v_i/Li/(rho_i + kappa) )
             
 
@@ -235,7 +241,7 @@ class FreeWay:
         if Type == 'Terminal':
             listFuncInput = [X, Xprev]             #, Slacks; if applicable
         else:
-            listFuncInput = [U, X, Uprev, Xprev]   #, Slacks; if applicable         
+            listFuncInput = [X, Xprev, U, Uprev]   #, Slacks; if applicable         
         
         if ('Slacks' in self.VSpace.keys()):
             listFuncInput.append(self.VSpace['Slacks'])#['Slacks'])
@@ -278,14 +284,26 @@ class FreeWay:
             self._TerminalCost = self._BuildFunc(Expr, Type)            
     
     def _ConstructCostAndConst(self, Cost, IneqConst, k):
+        
         StageInputList = []
         AddCost        = 0
-        isConst        = False
-        
-        for index in [k,k-1]:
-            if (k < self.Horizon-1) and (k > 0):
-                StageInputList.append(self.V['Inputs',index])
-            StageInputList.append(self.V['States',index])
+                
+        if (k==0):
+            StageInputList.append(self.V['States', k    ])
+            StageInputList.append(self.EP['Param','States0'     ])
+            StageInputList.append(self.V[ 'Inputs', k   ])
+            StageInputList.append(self.EP['Param','Inputs0'     ])
+            
+        if (k > 0) and (k < self.Horizon-1):
+            StageInputList.append(self.V['States', k    ])
+            StageInputList.append(self.V['States', k-1  ])
+            StageInputList.append(self.V['Inputs', k    ])
+            StageInputList.append(self.V['Inputs', k-1  ])
+            
+        if (k == self.Horizon-1):
+            StageInputList.append(self.V['States', k    ])
+            StageInputList.append(self.V['States', k-1  ])
+            
         
         if ('Slacks' in self.VSpace.keys()):
             StageInputList.append(self.V['Slacks',k])
@@ -293,73 +311,45 @@ class FreeWay:
         StageInputList.append(self.EP['Param'])
         StageInputList.append(self.EP['Meas', k])
         
+    
         if k == 0:
             if hasattr(self, '_ArrivalCost'):
-                [AddCost ]    = self._TerminalCost.call( StageInputList)
+                print "Arrival Cost Detected, build."
+                [AddCost ]    = self._ArrivalCost.call( StageInputList)
+                Cost += AddCost
+                
             if hasattr(self, '_ArrivalConst'):
-                [AppendConst] = self._TerminalConst.call(StageInputList)
-                isConst       = True
+                print "Arrival Constraint Detected, build."
+                [AppendConst] = self._ArrivalConst.call(StageInputList)
+                IneqConst.append( AppendConst )
         
         if k == self.Horizon-1:
             if hasattr(self, '_TerminalCost'):
+                print "Terminal Cost Detected, build."
                 [AddCost ]    = self._TerminalCost.call( StageInputList)
-            if hasattr(self, '_TerminalConst'):
-                [AppendConst] = self._TerminalConst.call(StageInputList)
-                isConst       = True
+                Cost += AddCost
                 
-        if (k < self.Horizon-1) and (k > 0):
-            [AddCost ] = self._StageCost.call(           StageInputList)
+            if hasattr(self, '_TerminalConst'):
+                print "Terminal Constraint Detected, build."
+                [AppendConst] = self._TerminalConst.call(StageInputList)
+                IneqConst.append( AppendConst )
+                
+        if (k < self.Horizon-1):
+            if hasattr(self, '_StageCost'):
+                print "Stage Cost Detected, build."
+                [AddCost ] = self._StageCost.call(           StageInputList)
+                Cost += AddCost
+                
             if hasattr(self, '_StageConst'):
+                print "Stage Constraint Detected, build."
                 [AppendConst] = self._StageConst.call(   StageInputList)
-                isConst       = True
+                IneqConst.append( AppendConst )
         
-        if isConst:
-            IneqConst.append( AppendConst )
-        Cost += AddCost
+
+        
         
         return Cost, IneqConst
     
-    #def _ConstructCostAndConst(self, Cost, IneqConst, k):
-    #    StageInputList = []
-    #    AddCost        = 0
-    #    isConst        = False
-    #    
-    #    for index in [k,k-1]:
-    #        if (k < self.Horizon-1) and (k > 0):
-    #            StageInputList.append(self.V['Inputs',index])
-    #        StageInputList.append(self.V['States',index])
-    #    
-    #    if ('Slacks' in self.VSpace.keys()):
-    #        StageInputList.append(self.V['Slacks',k])
-    #
-    #    StageInputList.append(self.EP['Param'])
-    #    StageInputList.append(self.EP['Meas', k])
-    #    
-    #    if k == 0:
-    #        if hasattr(self, '_ArrivalCost'):
-    #            [AddCost ]    = self._TerminalCost.call( StageInputList)
-    #        if hasattr(self, '_ArrivalConst'):
-    #            [AppendConst] = self._TerminalConst.call(StageInputList)
-    #            isConst       = True
-    #    
-    #    if k == self.Horizon-1:
-    #        if hasattr(self, '_TerminalCost'):
-    #            [AddCost ]    = self._TerminalCost.call( StageInputList)
-    #        if hasattr(self, '_TerminalConst'):
-    #            [AppendConst] = self._TerminalConst.call(StageInputList)
-    #            isConst       = True
-    #            
-    #    if (k < self.Horizon-1) and (k > 0):
-    #        [AddCost ] = self._StageCost.call(           StageInputList)
-    #        if hasattr(self, '_StageConst'):
-    #            [AppendConst] = self._StageConst.call(   StageInputList)
-    #            isConst       = True
-    #    
-    #    if isConst:
-    #        IneqConst.append( AppendConst )
-    #    Cost += AddCost
-    #    
-    #    return Cost, IneqConst
     
     def BuildMHE(self, Horizon = 1, SimTime = 1):
         """
@@ -413,7 +403,7 @@ class FreeWay:
         print "Building Cost & Inequality Constraints"
         IneqConst = []
         Cost      = 0 
-        for k in range(0,Horizon):
+        for k in range(Horizon):
             Cost, IneqConst = self._ConstructCostAndConst(Cost, IneqConst, k)
 
         print "\n"
@@ -510,34 +500,41 @@ class FreeWay:
         
         self._setParameters(EP = EPStruct, ExtParam = ExtParam)
         
-        if Simulated:
-            SegmentList = range(self.NumSegment)
-        else:
-            SegmentList = [0,self.NumSegment-1]
+        SegmentList = range(self.NumSegment)            
             
         #Assign Measurements
         DataDic = {'v': ['vv_3lane', 1.], 'rho': ['rr_3lane', 3.]}
         for k in range(TimeRange):
             for i in SegmentList:
                 for key in DataDic.keys():
-                    EPStruct['Meas',k,'Segment',i,key]  = Data[DataDic[key][0]][k, i]/DataDic[key][1]
-                    VStruct['States',k,'Segment',i,key] = Data[DataDic[key][0]][k, i]/DataDic[key][1]
+                    EPStruct['Meas', k,'Segment',i,key]         = Data[DataDic[key][0]][k, i]/DataDic[key][1]
+                    VStruct['States',k,'Segment',i,key]         = Data[DataDic[key][0]][k, i]/DataDic[key][1]
+                    EPStruct['Param','States0','Segment',i,key] = Data[DataDic[key][0]][0, i]/DataDic[key][1]
         
+        #Assign accident-free values
         VStruct['Inputs',:,'Segment',:,'alpha'] = 0.
         VStruct['Inputs',:,'Segment',:, 'beta'] = 1.
-        
+        EPStruct['Param','Inputs0','Segment',:,'alpha'] = 0.
+        EPStruct['Param','Inputs0','Segment',:,'beta']  = 1.
+         
         for key in ['rho','v']:
             EPStruct['Meas',:,'Segment',:,key] = VStruct['States',:,'Segment',:,key]
  
         return VStruct, EPStruct
     
-    def GenerateData(self, VStruct = [], EPStruct = [], ExtParam = [], TimeRange = 0, Simulated = False):
+    def GenerateData(self, VStruct = [], EPStruct = [], ExtParam = [], TimeRange = 0, Simulated = False, AddNoise = False):
         """
         Generate data for testing purposes
         """
         print "Assign Data"
-        Data, EP = self._AssignData(Simulated, Data = self.Data, VStruct = VStruct, EPStruct = EPStruct, ExtParam = ExtParam)
+        StateNoise = 0
 
+        Data, EP = self._AssignData(Simulated, Data = self.Data, VStruct = VStruct, EPStruct = EPStruct, ExtParam = ExtParam)
+        
+        if AddNoise:
+            rhoMean = np.mean(Data['States',:,'Segment',:,'rho'])
+            vMean   = np.mean(Data['States',:,'Segment',:,  'v'])
+        
         if TimeRange == 0:
             TimeRange = len(Data['States',:,'Segment',veccat])
         
@@ -548,9 +545,14 @@ class FreeWay:
                     for index, setInput in enumerate([Data['Inputs',k],Data['States',k],EP['Param']]):
                         self._Shoot[i].setInput(setInput,index)        
                     self._Shoot[i].evaluate()
-                    #print self._Shoot[i].output()
-                    Data['States',k+1,'Segment',i] = self._Shoot[i].output()
                     
+                    if AddNoise:
+                        StateNoise = np.array([
+                                                rand.normalvariate(0,1e-3*rhoMean),
+                                                rand.normalvariate(0,1e-3*vMean)
+                                              ])
+                    Data['States',k+1,'Segment',i] = self._Shoot[i].output() + StateNoise
+
             for key in ['rho','v']:
                 EP['Meas',:,'Segment',:,key] = Data['States',:,'Segment',:,key]
             
@@ -566,6 +568,8 @@ class FreeWay:
         initMHE = self.V()
         EPMHE   = self._setParameters(EP = self.EP(), ExtParam = ExtParam)
         
+        for key in ['States0','Inputs0']:
+            EPMHE['Param',key] = EP['Param',key]
         
         for k in range(self.Horizon):
             initMHE['States',k,...]   =  Data['States',time+k,...]
@@ -596,20 +600,30 @@ class FreeWay:
         
         Adjoints = self.g(np.array(self.Solver['solver'].output('lam_g')))
         Primal   = self.V(np.array(self.Solver['solver'].output('x')))
+        Status   = int(self.Solver['solver'].getStats()['return_status'] == 'Solve_Succeeded')
         
-        return Primal, Adjoints
+        return Primal, Adjoints, Status
     
     def Shift(self, Primal, EP):
+        
+        #Assign the previous 1st state and input to EP
+        EPShifted = EP
+        EPShifted['Param','States0'] = Primal['States',0]
+        EPShifted['Param','Inputs0'] = Primal['Inputs',0]
+        
+        #Primal Shift
         PrimalShifted = self.V(Primal)
         PrimalShifted[...,:-1] = Primal[...,1:]
         PrimalShifted[...,-1]  = Primal[...,-1]
         
+        #Last step completion
         for i in range(1,self.NumSegment-1):
             for index, setInput in enumerate([Primal['Inputs',-1],Primal['States',-1],EP['Param']]):
                 self._Shoot[i].setInput(setInput,index)        
             self._Shoot[i].evaluate()
             PrimalShifted['States',-1,'Segment',i] = self._Shoot[i].output()
         
+        #Assign measurement to the boundary conditions
         for i in [0,self.NumSegment-1]:
             PrimalShifted['States',-1,'Segment',i] = EP['Meas',-1,'Segment',i]
             
