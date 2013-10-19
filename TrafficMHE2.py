@@ -27,6 +27,7 @@ import matplotlib.pyplot as plt
 from matplotlib import interactive
 interactive(True)
 
+import time as timer
 
 import TrafficFlow2
 reload(TrafficFlow2)
@@ -61,8 +62,8 @@ Costs = {'Stage': 0, 'Terminal': 0, 'Arrival': 0}
 Const = []
 for key in Costs.keys():
     for i in range(T.NumSegment): 
-        Costs[key] += (T.VSpace['Slacks']['Segment',i,'Salpha'])
-        Costs[key] += (T.VSpace['Slacks']['Segment',i, 'Sbeta'])
+        Costs[key] += 0.1*(T.VSpace['Slacks']['Segment',i,'Salpha'])
+        Costs[key] += 0.1*(T.VSpace['Slacks']['Segment',i, 'Sbeta'])
         Costs[key] += Q['rho']*(T.VSpace['States']['Segment',i,'rho'] - T.Meas['Segment',i,'rho'])**2  
         Costs[key] += Q[  'v']*(T.VSpace['States']['Segment',i,  'v'] - T.Meas['Segment',i,  'v'])**2 
     
@@ -102,6 +103,7 @@ Data, EPData = T.GenerateData(VStruct = T.VSim(), EPStruct = T.EPSim(), ExtParam
 print "HIT RETURN TO LAUNCH MHE"
 
 raw_input()
+start = timer.time()
 #################################
 
 init, EP, lbV, ubV = T.PassMHEData(Data = Data, EP = EPData, ExtParam = TrafficParameters, time = 0)
@@ -111,23 +113,14 @@ StatusLog = []
 for time in range(SimTime):
     print time
 
-    #Cost, g = T.Check(init = init, EP = EP)
-    #print "Check initial guess:"
-    #print "Cost0", Cost, " | Const", list(g['EqConst',veccat])
-    
-    #Error = []
-    #for i in range(T.NumSegment):
-    #    Error.append(veccat(EP['Meas',:,'Segment',i,'rho']) - veccat(init['States',:,'Segment',i,'rho']))
-    #
-    #assert(time == 0)
     X, Mu, Status = T.SolveMHE(EP = EP, lbV = lbV, ubV = ubV, init = init)
     StatusLog.append(Status)
     
     #Display
-    timeDisp = {'Sim'      : [k      for k in range(SimTime)    ],
-                'MHEState' : [k+time for k in range(Horizon)    ],
-                'MHEInput' : [k+time for k in range(Horizon-1)  ],
-                'Data'     : [k      for k in range(Horizon+SimTime) ]}
+    #timeDisp = {'Sim'      : [k      for k in range(SimTime)    ],
+    #            'MHEState' : [k+time for k in range(Horizon)    ],
+    #            'MHEInput' : [k+time for k in range(Horizon-1)  ],
+    #            'Data'     : [k      for k in range(Horizon+SimTime) ]}
     
     #if (time > -1):
     #    plt.close('all')
@@ -163,7 +156,9 @@ for time in range(SimTime):
     _, EP, lbV, ubV = T.PassMHEData(Data = Data, EP = EPData, ExtParam = TrafficParameters, time = time+1)
     init  = T.Shift(X, EP)
 
-    
+elapsed = (timer.time() - start)
+
+print "Total time: ", elapsed
 
 timeDisp = {'Sim'      : [k      for k in range(SimTime)    ],
             'MHEState' : [k+time for k in range(Horizon)    ],
@@ -187,7 +182,7 @@ for i in range(T.NumSegment):
     plt.title('rho')
     
     plt.subplot(3,1,3)
-    plt.plot(timeDisp['Sim'],     T.Data['VMS_d'][:SimTime,3*i], linestyle = 'none', marker = '.',color = 'k')
+    plt.plot(timeDisp['Sim'],     np.mean(T.Data['VMS_d'][:SimTime,3*i:3*(i+1)],axis=1), linestyle = 'none', marker = '.',color = 'k')
     plt.plot(timeDisp['Sim'],     MHETraj['Inputs',:SimTime,'Segment',i,'Ve'],color = 'r',linewidth = 2)
     plt.plot(timeDisp['Sim'],     Data['Inputs',:SimTime,'Segment',i,'Ve'],color = 'g')
     plt.ylim([-10,120])

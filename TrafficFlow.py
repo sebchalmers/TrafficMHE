@@ -108,7 +108,7 @@ def _CreateFunc(Input,Output):
 
 class FreeWay:
     
-    def __init__(self, Path = [], Slacks = [], Meas = []):
+    def __init__(self, Path = [], Slacks = [], Meas = [], ExtParam = []):
         print "------------------"
         print "Initialize FreeWay"
         print "------------------"
@@ -127,14 +127,13 @@ class FreeWay:
         
         VarList = {
                     'States': ['rho', 'v'],
-                    'Inputs': ['r','f','alpha','beta']
+                    'Inputs': ['r','f','alpha','beta', 'Ve']
                   }
         
         GlobalParams  = struct_ssym(['vfree', 'kappa', 'tau', 'a', 'rho_cr', 'eta', 'T', 'delta'])
         Li            = struct_ssym(['L'])
         
-
-                
+        
         #Build structure to hold the data (will merge into EP)
         if not(Meas == []):
             Meas = struct_ssym(Meas)
@@ -155,7 +154,8 @@ class FreeWay:
                 
         if not(Slacks == []):
             # Slacks declared by the user (for constraints relaxation)
-            print "(Slack variables detected)"
+            print "Slack variables detected:"
+            print Slacks 
             SlackList = struct_ssym(Slacks)
             self.VStruct['Slacks'] = struct_ssym(Slacks)
                                  
@@ -167,12 +167,21 @@ class FreeWay:
             self.VSpacePrev[var] = struct_msym([entry('Segment', struct = self.VStruct[var],   repeat = self.NumSegment)])
         
         #Create Structure for External parameters
-        self.Param  = struct_msym([
+        ParamList =                 [
                                         entry('Global',  struct = GlobalParams                                      ),
                                         entry('States0', struct = self.VSpace['States']                             ),
                                         entry('Inputs0', struct = self.VSpace['Inputs']                             ),
                                         entry('Dist',    struct = Li,                      repeat = self.NumSegment )
-                                  ])
+                                    ]
+        self.Param  = struct_msym(ParamList)
+        
+        if not(ExtParam == []):
+            ExtParamList = []
+            for key in ExtParam:
+                Struct = struct_ssym([key])
+                ExtParamList.append(entry(key,    struct = Struct, repeat = self.NumSegment ))
+            self.ExtParam = struct_msym(ExtParamList)
+        
         
         
         T      = self.Param['Global',     'T']
@@ -210,8 +219,9 @@ class FreeWay:
             Li = self.Param['Dist',i,'L']
             
             #Ve function
-            Ve_arg  = (1+alpha_i)*rho_i
-            Ve_i    = vfree*exp(-((Ve_arg/rho_cr)**a)/a)
+            #Ve_arg  = (1+alpha_i)*rho_i
+            #Ve_i    = vfree*exp(-((Ve_arg/rho_cr)**a)/a)
+            Ve_i    = self.VSpace['Inputs']['Segment',i  ,'Ve'] 
             
             #Construct Dynamics        
             Dyn = []
@@ -283,7 +293,7 @@ class FreeWay:
         if (Type == 'Terminal'):
             self._TerminalCost = self._BuildFunc(Expr, Type)            
     
-    def _ConstructCostAndConst(self, Cost, IneqConst, k):
+    def _AddCostAndConst(self, Cost, IneqConst, k):
         
         StageInputList = []
         AddCost        = 0
@@ -350,6 +360,17 @@ class FreeWay:
         
         return Cost, IneqConst
     
+    def _CreateEPStruct(self, TimeHorizon):
+        EPList = [
+                    entry('Param', struct = self.Param),
+                    entry('Meas',  struct = self.Meas,      repeat = TimeHorizon)
+                  ]
+        
+        if hasattr(self,'ExtParam'):
+            EPList.append(entry('ExtParam',  struct = self.ExtParam,      repeat = TimeHorizon))
+            
+        EP = struct_msym(EPList)
+        return EP
     
     def BuildMHE(self, Horizon = 1, SimTime = 1):
         """
@@ -379,16 +400,9 @@ class FreeWay:
         self.V    = struct_msym(VarStruct)
         self.VSim  = struct_msym(SimStruct)
         
-        self.EP = struct_msym([
-                                entry('Param', struct = self.Param),
-                                entry('Meas',  struct = self.Meas,      repeat = self.Horizon)
-                              ])
-        
-        self.EPSim = struct_msym([
-                                entry('Param', struct = self.Param),
-                                entry('Meas',  struct = self.Meas,      repeat = self.SimTime)
-                              ])
-        
+        self.EP    = self._CreateEPStruct(self.Horizon)        
+        self.EPSim = self._CreateEPStruct(self.SimTime)
+
         #Construct Dynamic Constraints
         print "Building Dynamic Constraints"
         EquConst  = []
@@ -404,7 +418,7 @@ class FreeWay:
         IneqConst = []
         Cost      = 0 
         for k in range(Horizon):
-            Cost, IneqConst = self._ConstructCostAndConst(Cost, IneqConst, k)
+            Cost, IneqConst = self._AddCostAndConst(Cost, IneqConst, k)
 
         print "\n"
         print "------------------"
@@ -498,7 +512,7 @@ class FreeWay:
         
         TimeRange = len(VStruct['States',:,'Segment',veccat])
         
-        self._setParameters(EP = EPStruct, ExtParam = ExtParam)
+        EPStruct = self._setParameters(EP = EPStruct, ExtParam = ExtParam)
         
         SegmentList = range(self.NumSegment)            
             
@@ -520,6 +534,15 @@ class FreeWay:
         for key in ['rho','v']:
             EPStruct['Meas',:,'Segment',:,key] = VStruct['States',:,'Segment',:,key]
  
+        #Assign Ve
+        vfree  = EPStruct['Param','Global', 'vfree'  ]
+        a      = EPStruct['Param','Global', 'a'      ]
+        rho_cr = EPStruct['Param','Global', 'rho_cr' ]
+        for k in range(TimeRange):
+            for i in SegmentList:    
+                Ve_arg   = (1 + VStruct['Inputs',k,'Segment',i,'alpha'])*VStruct['States',k,'Segment',i,'rho']
+                VStruct['Inputs',k,'Segment',i,'Ve'] = vfree*exp(-((Ve_arg/rho_cr)**a)/a)
+                
         return VStruct, EPStruct
     
     def GenerateData(self, VStruct = [], EPStruct = [], ExtParam = [], TimeRange = 0, Simulated = False, AddNoise = False):
@@ -542,6 +565,15 @@ class FreeWay:
             print "Construct Simulated Data"
             for k in range(TimeRange-1):
                 for i in range(1,self.NumSegment-1):
+                    
+                    if (k > 150) and (k < 300):
+                        Data['Inputs',k,'Segment',3:5,'alpha'] = 0.
+                        Data['Inputs',k,'Segment',3:5,'beta']  = 1.
+                        Data['States',k,'Segment',0,'v']       = 20.
+                    else:
+                        Data['Inputs',k,'Segment',3:5,'alpha'] = 1.
+                        Data['Inputs',k,'Segment',3:5,'beta']  = 0.   
+                        
                     for index, setInput in enumerate([Data['Inputs',k],Data['States',k],EP['Param']]):
                         self._Shoot[i].setInput(setInput,index)        
                     self._Shoot[i].evaluate()
@@ -581,7 +613,33 @@ class FreeWay:
         initMHE['Inputs',:,...,:,'alpha'] = 0.
         initMHE['Inputs',:,...,:,'beta']  = 1.
         
-        return initMHE, EPMHE
+        
+        #Set variable bounds & initial guess
+        lbV  = self.V(-inf)
+        ubV  = self.V( inf)
+        
+        #Collapsed variables
+        for key in ['f','r']:
+            lbV['Inputs',:,'Segment',:,key] = 0.
+            ubV['Inputs',:,'Segment',:,key] = 0.
+        
+        #Bounds on alpha, beta
+        for key in ['alpha', 'beta']:
+            lbV['Inputs',:,'Segment',:,key] = 0
+            ubV['Inputs',:,'Segment',:,key] = 1
+        
+        lbV['Slacks'] = 0.
+        lbV['States'] = 0.
+        lbV['Inputs',:,'Segment',:,'Ve'] = 0.
+        
+        for i in range(self.NumSegment):
+            for k in range(self.Horizon-1):
+                VeBound = np.mean(self.Data['VMS_d'][time+k,3*i:3*i+3])
+                if np.isnan(VeBound):
+                    VeBound = 200.
+                ubV['Inputs',k,'Segment',i,'Ve'] = VeBound
+        
+        return initMHE, EPMHE, lbV, ubV
     
     def SolveMHE(self, EP = [], lbV = [], ubV = [], init = []):
         print "Solve Instance of MHE"

@@ -284,7 +284,7 @@ class FreeWay:
         if (Type == 'Terminal'):
             self._TerminalCost = self._BuildFunc(Expr, Type)            
     
-    def _ConstructCostAndConst(self, Cost, IneqConst, k):
+    def _AddCostAndConst(self, Cost, IneqConst, k):
         
         StageInputList = []
         AddCost        = 0
@@ -405,7 +405,7 @@ class FreeWay:
         IneqConst = []
         Cost      = 0 
         for k in range(Horizon):
-            Cost, IneqConst = self._ConstructCostAndConst(Cost, IneqConst, k)
+            Cost, IneqConst = self._AddCostAndConst(Cost, IneqConst, k)
 
         print "\n"
         print "------------------"
