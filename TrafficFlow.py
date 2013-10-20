@@ -41,7 +41,7 @@ def assertList(var):
     return var
 
 #Solver Constructor (used in both Turbine and WindFarm class)
-def _setSolver(self, V,Cost,g,P):
+def _setSolver(self, V,Cost,g,P, Tol):
 
     lbg = g()
     ubg = g()
@@ -64,7 +64,7 @@ def _setSolver(self, V,Cost,g,P):
     solver.setOption("print_level",0)  
     solver.setOption("hessian_approximation","exact")
     solver.setOption("max_iter",1500)
-    solver.setOption("tol",1e-3)
+    solver.setOption("tol",Tol)
     solver.setOption("linear_solver","ma27")
     
     solver.init()
@@ -107,7 +107,14 @@ def _CreateFunc(Input,Output):
 
 
 class FreeWay:
-    
+    def _StructBuilder(self, Vars):
+            EntryList = []
+            for key in Vars:
+                Struct = struct_ssym([key])
+                EntryList.append(entry(key, struct = Struct, repeat = self.NumSegment))      
+            Struct = struct_msym(EntryList)
+            return Struct
+        
     def __init__(self, Path = [], Slacks = [], Meas = [], ExtParam = []):
         print "------------------"
         print "Initialize FreeWay"
@@ -136,35 +143,23 @@ class FreeWay:
         
         #Build structure to hold the data (will merge into EP)
         if not(Meas == []):
-            Meas = struct_ssym(Meas)
+            self.Meas = self._StructBuilder(Meas)
         else:
             print "WARNING: NO DATA PROVIDED"
             
-        self.Meas   = struct_msym([
-                                    entry('Segment', struct = Meas, repeat = self.NumSegment)
-                                  ])
-        
-        self.VStruct = {}
-        for var in VarList.keys():
-            self.VStruct[var] = struct_ssym(VarList[var])
-        
-        self.VStructPrev = {}
-        self.VStructPrev['States'] = struct_ssym(VarList['States'])
-        self.VStructPrev['Inputs'] = struct_ssym(VarList['Inputs'])
-                
+
         if not(Slacks == []):
             # Slacks declared by the user (for constraints relaxation)
             print "Slack variables detected:"
-            print Slacks 
-            SlackList = struct_ssym(Slacks)
-            self.VStruct['Slacks'] = struct_ssym(Slacks)
+            print Slacks
+            VarList['Slacks'] = Slacks
                                  
         #Spatial Structure
         self.VSpace     = {}
         self.VSpacePrev = {}
-        for var in self.VStruct.keys():  
-            self.VSpace[var]     = struct_msym([entry('Segment', struct = self.VStruct[var],   repeat = self.NumSegment)])
-            self.VSpacePrev[var] = struct_msym([entry('Segment', struct = self.VStruct[var],   repeat = self.NumSegment)])
+        for var in VarList.keys():  
+            self.VSpace[var]     = self._StructBuilder(VarList[var])
+            self.VSpacePrev[var] = self._StructBuilder(VarList[var])
         
         #Create Structure for External parameters
         ParamList =                 [
@@ -198,30 +193,30 @@ class FreeWay:
         self._Shoot = ['Boundary, dynamics n/a']
         for i in range(1,self.NumSegment-1):
             ##Attribute spatial dynamic elements
-            rho_i   = self.VSpace['States']['Segment',i  ,'rho'  ]
-            v_i     = self.VSpace['States']['Segment',i  ,'v'    ]
+            rho_i   = self.VSpace['States']['rho',  i] 
+            v_i     = self.VSpace['States']['v',    i] 
             
-            rho_im  = self.VSpace['States']['Segment',i-1,'rho'  ]
-            v_im    = self.VSpace['States']['Segment',i-1,'v'    ]                
+            rho_im  = self.VSpace['States']['rho',i-1]  
+            v_im    = self.VSpace['States']['v',  i-1]              
                     
-            rho_ip  = self.VSpace['States']['Segment',i+1,'rho'  ]
-            v_ip    = self.VSpace['States']['Segment',i+1,'v'    ]
+            rho_ip  = self.VSpace['States']['rho',i+1]  
+            v_ip    = self.VSpace['States']['v',  i+1] 
                             
             q_im    = rho_im*v_im
             q_i     = rho_i *v_i
             
-            r_i     = self.VSpace['Inputs']['Segment',i  ,'r'    ]
-            f_i     = self.VSpace['Inputs']['Segment',i  ,'f'    ]
+            r_i     = self.VSpace['Inputs']['r',    i]  
+            f_i     = self.VSpace['Inputs']['f',    i]  
             
-            beta_i  = self.VSpace['Inputs']['Segment',i  ,'beta' ]
-            alpha_i = self.VSpace['Inputs']['Segment',i  ,'alpha']
+            beta_i  = self.VSpace['Inputs']['beta', i]  
+            alpha_i = self.VSpace['Inputs']['alpha',i]  
             
             Li = self.Param['Dist',i,'L']
             
             #Ve function
             #Ve_arg  = (1+alpha_i)*rho_i
             #Ve_i    = vfree*exp(-((Ve_arg/rho_cr)**a)/a)
-            Ve_i    = self.VSpace['Inputs']['Segment',i  ,'Ve'] 
+            Ve_i    = self.VSpace['Inputs']['Ve',  i]  
             
             #Construct Dynamics        
             Dyn = []
@@ -258,6 +253,9 @@ class FreeWay:
             
         listFuncInput.append(self.Param)
         listFuncInput.append(self.Meas)
+        
+        if hasattr(self,'ExtParam'):
+            listFuncInput.append(self.ExtParam)
         
         self.listFuncInput = listFuncInput
         Func = MXFunction(listFuncInput,[Expr])
@@ -321,6 +319,8 @@ class FreeWay:
         StageInputList.append(self.EP['Param'])
         StageInputList.append(self.EP['Meas', k])
         
+        if ('ExtParam' in self.EP.keys()):
+            StageInputList.append(self.EP['ExtParam',k])
     
         if k == 0:
             if hasattr(self, '_ArrivalCost'):
@@ -372,7 +372,7 @@ class FreeWay:
         EP = struct_msym(EPList)
         return EP
     
-    def BuildMHE(self, Horizon = 1, SimTime = 1):
+    def BuildMHE(self, Horizon = 1, SimTime = 1, Tol = 1e-3):
         """
         Construct the MHE problem. Specify your horizon lengths as Horizon = ...
         """
@@ -411,7 +411,8 @@ class FreeWay:
             for i in range(1,self.NumSegment-1):
                 #print "Segment", i
                 [Xplus]     = self._Shoot[i].call([self.V['Inputs',k],self.V['States',k],self.EP['Param']])
-                EquConst.append(  self.V['States',k+1,'Segment',i] - Xplus )
+                self.Xplus = Xplus
+                EquConst.append(  veccat(self.V['States',k+1,...,i]) - Xplus )
                 
         #Construct Stage Cost & Inequality Constraints
         print "Building Cost & Inequality Constraints"
@@ -433,7 +434,7 @@ class FreeWay:
         self.g = struct_MX(gList)
         
         ##Setup Central Solver
-        self.Solver = _setSolver(self, self.V, Cost, self.g, self.EP)
+        self.Solver = _setSolver(self, self.V, Cost, self.g, self.EP, Tol = Tol)
         
         self.gfunc = MXFunction([self.V, self.EP],[self.g])
         self.gfunc.init()
@@ -510,7 +511,7 @@ class FreeWay:
     
     def _AssignData(self, Simulated, Data = 0, VStruct = [], EPStruct = [], ExtParam = []):
         
-        TimeRange = len(VStruct['States',:,'Segment',veccat])
+        TimeRange = len(VStruct['States',:,...,veccat])
         
         EPStruct = self._setParameters(EP = EPStruct, ExtParam = ExtParam)
         
@@ -521,18 +522,18 @@ class FreeWay:
         for k in range(TimeRange):
             for i in SegmentList:
                 for key in DataDic.keys():
-                    EPStruct['Meas', k,'Segment',i,key]         = Data[DataDic[key][0]][k, i]/DataDic[key][1]
-                    VStruct['States',k,'Segment',i,key]         = Data[DataDic[key][0]][k, i]/DataDic[key][1]
-                    EPStruct['Param','States0','Segment',i,key] = Data[DataDic[key][0]][0, i]/DataDic[key][1]
+                    EPStruct['Meas', k,key,i]         = Data[DataDic[key][0]][k, i]/DataDic[key][1]
+                    VStruct['States',k,key,i]         = Data[DataDic[key][0]][k, i]/DataDic[key][1]
+                    EPStruct['Param','States0',key,i] = Data[DataDic[key][0]][0, i]/DataDic[key][1]
         
         #Assign accident-free values
-        VStruct['Inputs',:,'Segment',:,'alpha'] = 0.
-        VStruct['Inputs',:,'Segment',:, 'beta'] = 1.
-        EPStruct['Param','Inputs0','Segment',:,'alpha'] = 0.
-        EPStruct['Param','Inputs0','Segment',:,'beta']  = 1.
+        VStruct['Inputs',:,'alpha',:] = 0.
+        VStruct['Inputs',:,'beta',:] = 1.
+        EPStruct['Param','Inputs0','alpha',:] = 0.
+        EPStruct['Param','Inputs0','beta',:]  = 1.
          
         for key in ['rho','v']:
-            EPStruct['Meas',:,'Segment',:,key] = VStruct['States',:,'Segment',:,key]
+            EPStruct['Meas',:,key,:] = VStruct['States',:,key,:]
  
         #Assign Ve
         vfree  = EPStruct['Param','Global', 'vfree'  ]
@@ -540,8 +541,8 @@ class FreeWay:
         rho_cr = EPStruct['Param','Global', 'rho_cr' ]
         for k in range(TimeRange):
             for i in SegmentList:    
-                Ve_arg   = (1 + VStruct['Inputs',k,'Segment',i,'alpha'])*VStruct['States',k,'Segment',i,'rho']
-                VStruct['Inputs',k,'Segment',i,'Ve'] = vfree*exp(-((Ve_arg/rho_cr)**a)/a)
+                Ve_arg   = (1 + VStruct['Inputs',k,'alpha',i])*VStruct['States',k,'rho',i]
+                VStruct['Inputs',k,'Ve',i] = vfree*exp(-((Ve_arg/rho_cr)**a)/a)
                 
         return VStruct, EPStruct
     
@@ -555,25 +556,17 @@ class FreeWay:
         Data, EP = self._AssignData(Simulated, Data = self.Data, VStruct = VStruct, EPStruct = EPStruct, ExtParam = ExtParam)
         
         if AddNoise:
-            rhoMean = np.mean(Data['States',:,'Segment',:,'rho'])
-            vMean   = np.mean(Data['States',:,'Segment',:,  'v'])
+            rhoMean = np.mean(Data['States',:,'rho',:])
+            vMean   = np.mean(Data['States',:,'v',:])
         
         if TimeRange == 0:
-            TimeRange = len(Data['States',:,'Segment',veccat])
+            TimeRange = len(Data['States',:,...,veccat])
         
         if Simulated:
             print "Construct Simulated Data"
             for k in range(TimeRange-1):
                 for i in range(1,self.NumSegment-1):
-                    
-                    if (k > 150) and (k < 300):
-                        Data['Inputs',k,'Segment',3:5,'alpha'] = 0.
-                        Data['Inputs',k,'Segment',3:5,'beta']  = 1.
-                        Data['States',k,'Segment',0,'v']       = 20.
-                    else:
-                        Data['Inputs',k,'Segment',3:5,'alpha'] = 1.
-                        Data['Inputs',k,'Segment',3:5,'beta']  = 0.   
-                        
+                         
                     for index, setInput in enumerate([Data['Inputs',k],Data['States',k],EP['Param']]):
                         self._Shoot[i].setInput(setInput,index)        
                     self._Shoot[i].evaluate()
@@ -583,10 +576,10 @@ class FreeWay:
                                                 rand.normalvariate(0,1e-3*rhoMean),
                                                 rand.normalvariate(0,1e-3*vMean)
                                               ])
-                    Data['States',k+1,'Segment',i] = self._Shoot[i].output() + StateNoise
+                    Data['States',k+1,...,i] = list(self._Shoot[i].output() + StateNoise)
 
             for key in ['rho','v']:
-                EP['Meas',:,'Segment',:,key] = Data['States',:,'Segment',:,key]
+                EP['Meas',:,key,:] = Data['States',:,key,:]
             
         print "Done"
         
@@ -605,13 +598,13 @@ class FreeWay:
         
         for k in range(self.Horizon):
             initMHE['States',k,...]   =  Data['States',time+k,...]
-            EPMHE['Meas',k,...,:,...] =  EP['Meas',time+k,...,:,...]
+            EPMHE['Meas',k,...,:] =  EP['Meas',time+k,...,:]
         
         for k in range(self.Horizon-1):
             initMHE['Inputs',k,...]   =  Data['Inputs',time+k,...]
             
-        initMHE['Inputs',:,...,:,'alpha'] = 0.
-        initMHE['Inputs',:,...,:,'beta']  = 1.
+        initMHE['Inputs',:,'alpha',:] = 0.
+        initMHE['Inputs',:,'beta',:]  = 1.
         
         
         #Set variable bounds & initial guess
@@ -620,24 +613,24 @@ class FreeWay:
         
         #Collapsed variables
         for key in ['f','r']:
-            lbV['Inputs',:,'Segment',:,key] = 0.
-            ubV['Inputs',:,'Segment',:,key] = 0.
+            lbV['Inputs',:,key,:] = 0.
+            ubV['Inputs',:,key,:] = 0.
         
         #Bounds on alpha, beta
         for key in ['alpha', 'beta']:
-            lbV['Inputs',:,'Segment',:,key] = 0
-            ubV['Inputs',:,'Segment',:,key] = 1
+            lbV['Inputs',:,key,:] = 0
+            ubV['Inputs',:,key,:] = 1
         
         lbV['Slacks'] = 0.
         lbV['States'] = 0.
-        lbV['Inputs',:,'Segment',:,'Ve'] = 0.
+        lbV['Inputs',:,'Ve',:] = 0.
         
         for i in range(self.NumSegment):
             for k in range(self.Horizon-1):
                 VeBound = np.mean(self.Data['VMS_d'][time+k,3*i:3*i+3])
                 if np.isnan(VeBound):
                     VeBound = 200.
-                ubV['Inputs',k,'Segment',i,'Ve'] = VeBound
+                ubV['Inputs',k,'Ve',i] = VeBound
         
         return initMHE, EPMHE, lbV, ubV
     
@@ -679,11 +672,11 @@ class FreeWay:
             for index, setInput in enumerate([Primal['Inputs',-1],Primal['States',-1],EP['Param']]):
                 self._Shoot[i].setInput(setInput,index)        
             self._Shoot[i].evaluate()
-            PrimalShifted['States',-1,'Segment',i] = self._Shoot[i].output()
+            PrimalShifted['States',-1,...,i] = list(self._Shoot[i].output())
         
         #Assign measurement to the boundary conditions
         for i in [0,self.NumSegment-1]:
-            PrimalShifted['States',-1,'Segment',i] = EP['Meas',-1,'Segment',i]
+            PrimalShifted['States',-1,...,i] = EP['Meas',-1,...,i]
             
         return PrimalShifted
     
