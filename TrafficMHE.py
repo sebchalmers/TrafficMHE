@@ -11,12 +11,15 @@ Chalmers University of Technology
 SE-412 96 Gšteborg, SWEDEN
 grosse@chalmers.se
 
-Python/casADi Module:
-A Fast Algorithm for Power Smoothing of Wind Farms based on Distributed Optimal Control
+Python/casADi Code:
+An MHE Scheme for Freeway Traffic Incident Detection
 
-Requires the installation of the open-source Python module casADi together with the NLP solver ipopt
+Requires the Python Module TrafficFlow.py 
+Requires the installation of the open-source software casADi together with the NLP solver ipopt
 
 Required version of CasADi: v1.7.x
+
+
  
 """
 
@@ -33,7 +36,7 @@ import TrafficFlow
 reload(TrafficFlow)
 from TrafficFlow import *
 
-Horizon = 5
+Horizon = 2
 T = FreeWay(Path = 'incident data_correct VMS', Meas = ['rho','v'], Slacks = ['Salpha', 'Sbeta', 'SVe'], ExtParam = ['Ve_max'])
 
 SimTime = 800
@@ -101,7 +104,7 @@ T.BuildMHE(Horizon = Horizon, SimTime = SimTime, Tol = 1e-3)
 
 
 #Assign initial Data and Parameters
-Data, EPData = T.GenerateData(VStruct = T.VSim(), EPStruct = T.EPSim(), ExtParam = TrafficParameters, Simulated = True)#, AddNoise = True)
+Data, EPData = T.GenerateData(VStruct = T.VSim(), EPStruct = T.EPSim(), ExtParam = TrafficParameters)#, Simulated = True)#, AddNoise = True)
 
 
 print "HIT RETURN TO LAUNCH MHE"

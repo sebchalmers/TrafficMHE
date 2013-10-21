@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Nov 16 20:18:08 2012
+Created on Fri Oct 16, 2014
 
 @author:
 
@@ -13,7 +13,7 @@ SE-412 96 Gšteborg, SWEDEN
 grosse@chalmers.se
 
 Python/casADi Module:
-A Fast Algorithm for Power Smoothing of Wind Farms based on Distributed Optimal Control
+An MHE module for Freeway Traffic Incident Detection
 
 Requires the installation of the open-source Python module casADi together with the NLP solver ipopt
 
