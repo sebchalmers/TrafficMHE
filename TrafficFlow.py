@@ -213,9 +213,6 @@ class FreeWay:
             
             Li = self.Param['Dist',i,'L']
             
-            #Ve function
-            #Ve_arg  = (1+alpha_i)*rho_i
-            #Ve_i    = vfree*exp(-((Ve_arg/rho_cr)**a)/a)
             Ve_i    = self.VSpace['Inputs']['Ve',  i]  
             
             #Construct Dynamics        
@@ -225,8 +222,8 @@ class FreeWay:
             
             Dyn.append(     v_i + T*(beta_i*Ve_i - v_i)/tau    \
                                 + T*v_i*(v_im - v_i)/Li  \
-                                - beta_i*(1 - alpha_i)*(eta*T)*(rho_ip - rho_i)/(rho_i + kappa)/(tau*Li)         \
-                                - delta*T*r_i*v_i/Li/(rho_i + kappa) )
+                                - beta_i*(1 - alpha_i)*(eta*T)*(rho_ip - rho_i)/(rho_i + kappa)/(tau*Li) )#        \
+                                #- delta*T*r_i*v_i/Li/(rho_i + kappa) )
             
 
             Shoot = _CreateFunc([self.VSpace['Inputs'],self.VSpace['States'],self.Param],[veccat(Dyn)])
@@ -344,7 +341,7 @@ class FreeWay:
                 [AppendConst] = self._TerminalConst.call(StageInputList)
                 IneqConst.append( AppendConst )
                 
-        if (k < self.Horizon-1):
+        if (k < self.Horizon-1) and (k > 0):
             if hasattr(self, '_StageCost'):
                 print "Stage Cost Detected, build."
                 [AddCost ] = self._StageCost.call(           StageInputList)
@@ -512,11 +509,11 @@ class FreeWay:
     def _AssignData(self, Simulated, Data = 0, VStruct = [], EPStruct = [], ExtParam = []):
         
         TimeRange = len(VStruct['States',:,...,veccat])
+        SegmentList = range(self.NumSegment)
         
         EPStruct = self._setParameters(EP = EPStruct, ExtParam = ExtParam)
         
-        SegmentList = range(self.NumSegment)            
-            
+        
         #Assign Measurements
         DataDic = {'v': ['vv_3lane', 1.], 'rho': ['rr_3lane', 3.]}
         for k in range(TimeRange):
@@ -524,26 +521,22 @@ class FreeWay:
                 for key in DataDic.keys():
                     EPStruct['Meas', k,key,i]         = Data[DataDic[key][0]][k, i]/DataDic[key][1]
                     VStruct['States',k,key,i]         = Data[DataDic[key][0]][k, i]/DataDic[key][1]
-                    EPStruct['Param','States0',key,i] = Data[DataDic[key][0]][0, i]/DataDic[key][1]
+                    
         
         #Assign accident-free values
         VStruct['Inputs',:,'alpha',:] = 0.
         VStruct['Inputs',:,'beta',:] = 1.
-        EPStruct['Param','Inputs0','alpha',:] = 0.
-        EPStruct['Param','Inputs0','beta',:]  = 1.
+        
+
+        for k in range(360,840):
+            for i in [2]:
+                VStruct['Inputs',k,'alpha',i] = 0.3
+                VStruct['Inputs',k,'beta',i] = 0.7
          
         for key in ['rho','v']:
             EPStruct['Meas',:,key,:] = VStruct['States',:,key,:]
  
-        #Assign Ve
-        vfree  = EPStruct['Param','Global', 'vfree'  ]
-        a      = EPStruct['Param','Global', 'a'      ]
-        rho_cr = EPStruct['Param','Global', 'rho_cr' ]
-        for k in range(TimeRange):
-            for i in SegmentList:    
-                Ve_arg   = (1 + VStruct['Inputs',k,'alpha',i])*VStruct['States',k,'rho',i]
-                VStruct['Inputs',k,'Ve',i] = vfree*exp(-((Ve_arg/rho_cr)**a)/a)
-                
+
         return VStruct, EPStruct
     
     def GenerateData(self, VStruct = [], EPStruct = [], ExtParam = [], TimeRange = 0, Simulated = False, AddNoise = False):
@@ -554,7 +547,7 @@ class FreeWay:
         StateNoise = 0
 
         Data, EP = self._AssignData(Simulated, Data = self.Data, VStruct = VStruct, EPStruct = EPStruct, ExtParam = ExtParam)
-        
+
         if AddNoise:
             rhoMean = np.mean(Data['States',:,'rho',:])
             vMean   = np.mean(Data['States',:,'v',:])
@@ -564,9 +557,16 @@ class FreeWay:
         
         if Simulated:
             print "Construct Simulated Data"
+            #Assign parameters
+            vfree  = EP['Param','Global', 'vfree'  ]
+            a      = EP['Param','Global', 'a'      ]
+            rho_cr = EP['Param','Global', 'rho_cr' ]
             for k in range(TimeRange-1):
                 for i in range(1,self.NumSegment-1):
-                         
+                    #Assign Ve
+                    Ve_arg   = (1 + Data['Inputs',k,'alpha',i])*Data['States',k,'rho',i]
+                    Data['Inputs',k,'Ve',i] = vfree*exp(-((Ve_arg/rho_cr)**a)/a)
+                
                     for index, setInput in enumerate([Data['Inputs',k],Data['States',k],EP['Param']]):
                         self._Shoot[i].setInput(setInput,index)        
                     self._Shoot[i].evaluate()
@@ -580,7 +580,18 @@ class FreeWay:
 
             for key in ['rho','v']:
                 EP['Meas',:,key,:] = Data['States',:,key,:]
-            
+        
+        
+        #Assign Ve on the boundaries (for consistency)
+        for k in range(TimeRange-1):
+                for i in [0,self.NumSegment-1]:
+                    Ve_arg   = (1 + Data['Inputs',k,'alpha',i])*Data['States',k,'rho',i]
+                    Data['Inputs',k,'Ve',i] = vfree*exp(-((Ve_arg/rho_cr)**a)/a)
+        
+        #Assign initial conditions
+        for key in ['Inputs','States']:
+            EP['Param',key+'0'] = Data[key,0]  
+
         print "Done"
         
         return Data, EP
@@ -597,15 +608,12 @@ class FreeWay:
             EPMHE['Param',key] = EP['Param',key]
         
         for k in range(self.Horizon):
-            initMHE['States',k,...]   =  Data['States',time+k,...]
-            EPMHE['Meas',k,...,:] =  EP['Meas',time+k,...,:]
+            initMHE['States',k,...]  =  Data['States',time+k,...]
+            EPMHE['Meas',k,...,:]    =  EP['Meas',time+k,...,:]
         
         for k in range(self.Horizon-1):
             initMHE['Inputs',k,...]   =  Data['Inputs',time+k,...]
-            
-        initMHE['Inputs',:,'alpha',:] = 0.
-        initMHE['Inputs',:,'beta',:]  = 1.
-        
+                    
         
         #Set variable bounds & initial guess
         lbV  = self.V(-inf)
@@ -621,16 +629,24 @@ class FreeWay:
             lbV['Inputs',:,key,:] = 0
             ubV['Inputs',:,key,:] = 1
         
-        lbV['Slacks'] = 0.
-        lbV['States'] = 0.
-        lbV['Inputs',:,'Ve',:] = 0.
         
-        for i in range(self.NumSegment):
-            for k in range(self.Horizon-1):
-                VeBound = np.mean(self.Data['VMS_d'][time+k,3*i:3*i+3])
-                if np.isnan(VeBound):
-                    VeBound = 200.
-                ubV['Inputs',k,'Ve',i] = VeBound
+        if ('Slacks' in lbV.keys()):
+            lbV['Slacks'] = 0.
+            
+        lbV['States'] = 0    
+        lbV['Inputs',:,'Ve',:] = 0
+        
+        ubV['Inputs',:,'Ve',:]  = 130.
+        ubV['States',:,'v',:]   = 130.
+        ubV['States',:,'rho',:] = 90.
+        ubV['Slacks']           = 1.
+    
+        #for i in range(self.NumSegment):
+        #    for k in range(self.Horizon-1):
+        #        VeBound = np.mean(self.Data['VMS_d'][time+k,3*i:3*i+3])
+        #        if np.isnan(VeBound):
+        #            VeBound = 200.
+        #        ubV['Inputs',k,'Ve',i] = VeBound
         
         return initMHE, EPMHE, lbV, ubV
     
@@ -651,16 +667,17 @@ class FreeWay:
         
         Adjoints = self.g(np.array(self.Solver['solver'].output('lam_g')))
         Primal   = self.V(np.array(self.Solver['solver'].output('x')))
+        Cost     = self.Solver['solver'].output('f')
         Status   = int(self.Solver['solver'].getStats()['return_status'] == 'Solve_Succeeded')
         
-        return Primal, Adjoints, Status
+        return Primal, Adjoints, Cost, Status
     
     def Shift(self, Primal, EP):
         
         #Assign the previous 1st state and input to EP
         EPShifted = EP
-        EPShifted['Param','States0'] = Primal['States',0]
-        EPShifted['Param','Inputs0'] = Primal['Inputs',0]
+        EPShifted['Param','States0'] = Primal['States',1]
+        EPShifted['Param','Inputs0'] = Primal['Inputs',1]
         
         #Primal Shift
         PrimalShifted = self.V(Primal)
@@ -678,7 +695,7 @@ class FreeWay:
         for i in [0,self.NumSegment-1]:
             PrimalShifted['States',-1,...,i] = EP['Meas',-1,...,i]
             
-        return PrimalShifted
+        return PrimalShifted, EPShifted
     
 
     def Check(self, init = 0, EP = 0):
