@@ -210,10 +210,11 @@ class FreeWay:
             
             beta_i  = self.VSpace['Inputs']['beta', i]  
             alpha_i = self.VSpace['Inputs']['alpha',i]  
+            Ve_i    = self.VSpace['Inputs']['Ve',   i]
             
             Li = self.Param['Dist',i,'L']
             
-            Ve_i    = self.VSpace['Inputs']['Ve',  i]  
+              
             
             #Construct Dynamics        
             Dyn = []
@@ -527,11 +528,6 @@ class FreeWay:
         VStruct['Inputs',:,'alpha',:] = 0.
         VStruct['Inputs',:,'beta',:] = 1.
         
-
-        for k in range(360,840):
-            for i in [2]:
-                VStruct['Inputs',k,'alpha',i] = 0.3
-                VStruct['Inputs',k,'beta',i] = 0.7
          
         for key in ['rho','v']:
             EPStruct['Meas',:,key,:] = VStruct['States',:,key,:]
@@ -557,11 +553,19 @@ class FreeWay:
         
         if Simulated:
             print "Construct Simulated Data"
+            FaultySegment = 3
             #Assign parameters
             vfree  = EP['Param','Global', 'vfree'  ]
             a      = EP['Param','Global', 'a'      ]
             rho_cr = EP['Param','Global', 'rho_cr' ]
             for k in range(TimeRange-1):
+                
+                #Generate accident
+                if k in range(360,840):
+                    Data['Inputs',k,'alpha',FaultySegment] = np.min([Data['Inputs',k-1,'alpha',FaultySegment] + 0.01, 0.3])
+                    Data['Inputs',k, 'beta',FaultySegment] = np.max([Data['Inputs',k-1, 'beta',FaultySegment] - 0.01, 0.7])
+                
+                #Forward Simulation
                 for i in range(1,self.NumSegment-1):
                     #Assign Ve
                     Ve_arg   = (1 + Data['Inputs',k,'alpha',i])*Data['States',k,'rho',i]
