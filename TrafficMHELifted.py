@@ -39,7 +39,7 @@ from TrafficFlowLifted import *
 Horizon = 10
 T = FreeWay(Path = 'incident data_correct VMS', Meas = ['rho','v'], Slacks = ['Salpha', 'Sbeta'])#, 'SVe', ExtParam = ['Ve_max'])
 
-SimTime = 1500
+SimTime = 850
 
 TrafficParameters = { 'a'     :   4.04, 
                       'tau'   :   16.1,
@@ -59,8 +59,17 @@ rho_cr = TrafficParameters[ 'rho_cr' ]
 # rr_3lane/3 -> density (rho)
 # VMS_d      -> variable speed limit 0> Ve = min
 
-Q = {'rho': 1e0, 'v': 1e0}
+#Weight level for incident detection (noise-free)
+#Q = {'rho': 1e0, 'v': 1e0, 'alpha' : 1e-3, 'beta' : 1e-3}
 
+#Weight level for robustness to 1% state noise
+#Q = {'rho': 1e0, 'v': 1e0, 'alpha' : 2e0, 'beta' : 2e0}
+#A = {'rho': 1e0, 'v': 1e0}
+
+#Parameter lock
+Q = {'rho': 1e0, 'v': 1e0, 'alpha' : 1e1, 'beta' : 1e1}
+A = {'rho': 1e0, 'v': 1e0}
+     
 Costs = {'Stage'    : 0,  #Operative at time 1:N-1
          'Terminal' : 0,  #Operative at time N
          'Arrival'  : 0}  #Operative at time 0
@@ -95,12 +104,12 @@ for key in Costs.keys():
             Const.append(-dalpha - T.VSpace['Slacks']['Salpha',i]) # <= 0 
             Const.append( dalpha - T.VSpace['Slacks']['Salpha',i]) # <= 0
             
-            Costs[key] += 1e-2*T.VSpace['Slacks']['Salpha',i] 
-            Costs[key] += 1e-2*T.VSpace['Slacks']['Sbeta', i] 
+            Costs[key] += Q['alpha']*T.VSpace['Slacks']['Salpha',i] 
+            Costs[key] += Q['beta']*T.VSpace['Slacks']['Sbeta', i] 
             
             #Const.append( T.VSpace['Inputs']['Ve',i]  - T.ExtParam['Ve_max',i] - T.VSpace['Slacks']['SVe', i])
             
-        if key == 'Arrival': #Operative at time 0
+        if key == 'Arrival': 
             #Costs[key] += 1e-4* (T.VSpace['Inputs']['alpha',i])**2
             #Costs[key] += 1e-4*(T.VSpace['Inputs']['beta',i]-1)**2        
         
@@ -116,12 +125,17 @@ for key in Costs.keys():
             Const.append(-dalpha - T.VSpace['Slacks']['Salpha',i]) # <= 0 
             Const.append( dalpha - T.VSpace['Slacks']['Salpha',i]) # <= 0
                         
-            #Confidence in previous estimate 
-            Costs[key] += Q['rho']*(T.VSpace['States']['rho', i] - T.VSpacePrev['States']['rho', i])**2  
-            Costs[key] += Q[  'v']*(T.VSpace['States']['v',   i] - T.VSpacePrev['States']['v',   i])**2 
+            Costs[key] += Q['alpha']*T.VSpace['Slacks']['Salpha',i] 
+            Costs[key] += Q['beta']*T.VSpace['Slacks']['Sbeta', i]
             
-            Costs[key] += 1e-2*T.VSpace['Slacks']['Salpha',i] 
-            Costs[key] += 1e-2*T.VSpace['Slacks']['Sbeta', i] 
+            ##Confidence in previous estimate 
+            #Costs[key] += Q['rho']*(T.VSpace['States']['rho', i] - T.VSpacePrev['States']['rho', i])**2  
+            #Costs[key] += Q[  'v']*(T.VSpace['States']['v',   i] - T.VSpacePrev['States']['v',   i])**2 
+            
+            #Confidence in previous estimate 
+            #Costs[key] += A['rho']*(T.VSpace['States']['rho', i] - T.VSpacePrev['States']['rho', i])**2  
+            #Costs[key] += A[  'v']*(T.VSpace['States']['v',   i] - T.VSpacePrev['States']['v',   i])**2 
+
 
             
     T.setCost(Costs[key], Type = key)
@@ -133,8 +147,12 @@ T.BuildMHE(Horizon = Horizon, SimTime = SimTime, Tol = 1e-9)
 
 
 #Assign initial Data and Parameters
-Data, EPData = T.GenerateData(VStruct = T.VSim(), EPStruct = T.EPSim(), ExtParam = TrafficParameters, Simulated = True)#, AddNoise = True)
+Data, EPData = T.GenerateData(VStruct = T.VSim(), EPStruct = T.EPSim(), ExtParam = TrafficParameters, Simulated = True, AddNoise = False)
 
+print "Constructed constraints:"
+print "------------------------"
+for key in T.g.keys():
+    print key
 
 print "LAUNCH MHE"
 
@@ -162,13 +180,10 @@ for time in range(SimTime):
         
         
     #print "Cost:", float(Cost), "CostMHE:", float(CostMHE)
-    #print "Dynamic Const:"
-    #print g['DynConst',veccat]
-    #print "Lifting Const:"
-    #print g['LiftConst',veccat]
-    #if ('IneqConst' in g.keys()):
-    #    print "Inequality Const:"
-    #    print g['IneqConst',veccat]
+    #for key in ['DynConst','LiftConst','InitConst','IneqConst']:
+    #    if (key in g.keys()):
+    #        print key + ":"
+    #        print g[key]
     #    
     #if (Cost > 10):
     #    vfree  = EP['Param','Global', 'vfree'  ]
@@ -183,7 +198,7 @@ for time in range(SimTime):
     
     
             
-    #if (time >= 650):
+    #if (time >= 0):
     #    #    #Display
     #    timeDisp = {'Sim'      : [k      for k in range(SimTime)    ],
     #                'MHEState' : [k+time for k in range(Horizon)    ],
@@ -228,8 +243,8 @@ for time in range(SimTime):
     #        plt.ylim([-0.1,1.1])
     #        plt.grid()
     #        plt.legend(loc = 0)
-    #    raw_input()
-    #    assert(time < 0)
+    #    #raw_input()
+    #    assert(time < 5)
 
 
     MHETraj[...,time] = X[...,0]

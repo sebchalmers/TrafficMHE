@@ -235,7 +235,7 @@ class FreeWay:
             alpha_i = self.VSpace['Inputs']['alpha',i]
             theta_i = self.VSpace['Inputs']['theta',i]
             
-            ## Force Ve to match:
+            ### Force Ve to match:
             #rho_i   = self.VSpace['States']['rho',  i] 
             #Ve_i    = self.VSpace['Inputs']['Ve',   i]
             #Ve_arg  = -(1/a)*theta_i*(rho_i/rho_cr)**a
@@ -429,7 +429,7 @@ class FreeWay:
                 [Lift]      = self._Lift[i].call([self.V['Inputs',k],self.V['States',k],self.EP['Param']])
                 LiftConst.append(  Lift )
         
-        #InitConst = self.V['States',0] - self.EP['Param','States0']    
+        InitConst = self.V['States',0] - self.EP['Param','States0']    
                 
         #Construct Stage Cost & Inequality Constraints
         print "Building Cost & Inequality Constraints"
@@ -448,7 +448,7 @@ class FreeWay:
         gList = [
                     entry('DynConst',   expr = DynConst),
                     entry('LiftConst',  expr = LiftConst),
-                    #entry('InitConst',  expr = InitConst)
+                    entry('InitConst',  expr = InitConst)
                 ]
         
         if not(IneqConst == []):
@@ -701,7 +701,6 @@ class FreeWay:
         ubV['States',:,'v',:]   = 130.
         ubV['States',:,'rho',:] = 150.
         
-    
         #for i in range(self.NumSegment):
         #    for k in range(self.Horizon-1):
         #        VeBound = np.mean(self.Data['VMS_d'][time+k,3*i:3*i+3])

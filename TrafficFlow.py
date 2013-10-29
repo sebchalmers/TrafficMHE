@@ -223,8 +223,7 @@ class FreeWay:
             
             Dyn.append(     v_i + T*(beta_i*Ve_i - v_i)/tau    \
                                 + T*v_i*(v_im - v_i)/Li  \
-                                - beta_i*(1 - alpha_i)*(eta*T)*(rho_ip - rho_i)/(rho_i + kappa)/(tau*Li) )#        \
-                                #- delta*T*r_i*v_i/Li/(rho_i + kappa) )
+                                - beta_i*(1 - alpha_i)*(eta*T)*(rho_ip - rho_i)/(rho_i + kappa)/(tau*Li) )
             
 
             Shoot = _CreateFunc([self.VSpace['Inputs'],self.VSpace['States'],self.Param],[veccat(Dyn)])

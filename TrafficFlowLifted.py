@@ -427,7 +427,8 @@ class FreeWay:
             for i in range(self.NumSegment):    
                 [Lift]      = self._Lift[i].call([self.V['Inputs',k],self.V['States',k],self.EP['Param']])
                 LiftConst.append(  Lift )
-                
+        
+        InitConst = self.V['States',0] - self.EP['Param','States0']    
                 
         #Construct Stage Cost & Inequality Constraints
         print "Building Cost & Inequality Constraints"
@@ -444,7 +445,9 @@ class FreeWay:
         print "NLP"
         
         gList = [entry('DynConst',   expr = DynConst),
-                 entry('LiftConst',  expr = LiftConst)]
+                 entry('LiftConst',  expr = LiftConst),
+                 entry('InitConst',  expr = InitConst)
+                 ]
         
         if not(IneqConst == []):
             gList.append(entry('IneqConst', expr = IneqConst))
@@ -581,19 +584,9 @@ class FreeWay:
                 
                 #Generate accident
                 #if k in range(360,840):
-                #    Data['Inputs',k,'alpha' ,FaultySegment] = np.min([Data['Inputs',k-1,'alpha',FaultySegment] + 0.01, 0.3])
-                #    Data['Inputs',k, 'beta' ,FaultySegment] = np.max([Data['Inputs',k-1, 'beta',FaultySegment] - 0.01, 0.7])
-                #    Data['Inputs',k, 'theta',FaultySegment] = (1 + Data['Inputs',k,'alpha',FaultySegment])**a
-                #
-                #if k >= 840:
-                #    Data['Inputs',k,'alpha' ,FaultySegment] = np.max([Data['Inputs',k-1,'alpha',FaultySegment] - 0.01, 0.0])
-                #    Data['Inputs',k, 'beta' ,FaultySegment] = np.min([Data['Inputs',k-1, 'beta',FaultySegment] + 0.01, 1.0])
-                #    Data['Inputs',k, 'theta',FaultySegment] = (1 + Data['Inputs',k,'alpha',FaultySegment])**a
-                 
-                if k in range(360,840):
-                    Data['Inputs',k,'alpha' ,FaultySegment] = 0.3
-                    Data['Inputs',k, 'beta' ,FaultySegment] = 0.7
-                    Data['Inputs',k, 'theta',FaultySegment] = (1 + Data['Inputs',k,'alpha',FaultySegment])**a
+                Data['Inputs',360:840,'alpha' ,FaultySegment] = 0.3
+                Data['Inputs',360:840, 'beta' ,FaultySegment] = 0.7
+                Data['Inputs',360:840, 'theta',FaultySegment] = (1 + Data['Inputs',k,'alpha',FaultySegment])**a
                    
                 
                 #Forward Simulation
@@ -608,7 +601,7 @@ class FreeWay:
                     
                     if AddNoise:
                         StateNoise = np.array([
-                                                rand.normalvariate(0,1e-3*rhoMean),
+                                                rand.normalvariate(0,0*rhoMean),
                                                 rand.normalvariate(0,1e-3*vMean)
                                               ])
                         
@@ -674,7 +667,7 @@ class FreeWay:
         
         ubV['Inputs',:,'Ve',:]  = 130.
         ubV['States',:,'v',:]   = 130.
-        ubV['States',:,'rho',:] = 90.
+        ubV['States',:,'rho',:] = 150.
         ubV['Slacks']           = 1.
     
         #for i in range(self.NumSegment):
