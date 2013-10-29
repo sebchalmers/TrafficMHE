@@ -254,7 +254,7 @@ class FreeWay:
         Uprev       = self.VSpacePrev['Inputs']
                         
         #CAREFUL, THE INPUT SCHEME MUST MATCH THE FUNCTION CALLS !!
-        if Type == 'Terminal':
+        if  Type == 'Terminal':
             listFuncInput = [X, Xprev]             #, Slacks; if applicable
         else:
             listFuncInput = [X, Xprev, U, Uprev]   #, Slacks; if applicable         
@@ -300,7 +300,10 @@ class FreeWay:
         if (Type == 'Arrival'):
             self._ArrivalCost  = self._BuildFunc(Expr, Type)
         if (Type == 'Terminal'):
-            self._TerminalCost = self._BuildFunc(Expr, Type)            
+            self._TerminalCost = self._BuildFunc(Expr, Type)
+        if (Type == 'Fit'):
+            self._FitCost         = self._BuildFunc(Expr, [])
+            self._FitTerminalCost = self._BuildFunc(Expr, 'Terminal')
     
     def _AddCostAndConst(self, Cost, IneqConst, k):
         
@@ -332,6 +335,14 @@ class FreeWay:
         
         if ('ExtParam' in self.EP.keys()):
             StageInputList.append(self.EP['ExtParam',k])
+    
+        #Add Fitting Cost
+        if (k < self.Horizon-1):
+            [AddCost ]    = self._FitCost.call( StageInputList)
+            Cost += AddCost
+        else:
+            [AddCost ]    = self._FitTerminalCost.call( StageInputList)
+            Cost += AddCost
     
         if k == 0:
             if hasattr(self, '_ArrivalCost'):

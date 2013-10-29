@@ -73,15 +73,12 @@ A = {'rho': 1e1, 'v': 1e1}
      
 Costs = {'Stage'    : 0,  #Operative at time 1:N-1
          'Terminal' : 0,  #Operative at time N
-         'Arrival'  : 0}  #Operative at time 0
+         'Arrival'  : 0,  #Operative at time 0
+         'Fit'      : 0 } #Operative on the subgrid of the data points 
 
 Const = []
 for key in Costs.keys():
     for i in range(T.NumSegment): 
-
-        #Measurement fitting
-        Costs[key] += Q['rho']*(T.VSpace['States']['rho',i] - T.Meas['rho',i])**2  
-        Costs[key] += Q[  'v']*(T.VSpace['States']['v',  i] - T.Meas['v',  i])**2 
 
         ##Optimal Speed Tracking
         if not(key == 'Terminal'):
@@ -98,6 +95,11 @@ for key in Costs.keys():
         Const.append(-dalpha - T.VSpace['Slacks']['Salpha',i]) # <= 0 
         Const.append( dalpha - T.VSpace['Slacks']['Salpha',i]) # <= 0
             
+        if key == 'Fit':
+            #Measurement fitting
+            Costs[key] += Q['rho']*(T.VSpace['States']['rho',i] - T.Meas['rho',i])**2  
+            Costs[key] += Q[  'v']*(T.VSpace['States']['v',  i] - T.Meas['v',  i])**2 
+
         if key == 'Stage':
             #Correlation alpha-beta     
             Costs[key] += Q['alpha']*(T.VSpace['Inputs']['alpha',i] + T.VSpace['Inputs']['beta',i] - 1)**2
@@ -105,8 +107,6 @@ for key in Costs.keys():
             #Slack weight
             Costs[key] += Q['alpha']*(T.VSpace['Slacks']['Salpha',i])
             Costs[key] += Q['beta']*(T.VSpace['Slacks']['Sbeta', i])
-            
-            
             
         if key == 'Arrival': 
             #Correlation alpha-beta        
@@ -119,8 +119,6 @@ for key in Costs.keys():
             #Costs[key] += A['rho']*(T.VSpace['States']['rho', i] - T.VSpacePrev['States']['rho', i])**2  
             #Costs[key] += A[  'v']*(T.VSpace['States']['v',   i] - T.VSpacePrev['States']['v',   i])**2 
 
-
-            
     T.setCost(Costs[key], Type = key)
 
 T.setIneqConst(Const)
