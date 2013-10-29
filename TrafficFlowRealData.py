@@ -237,10 +237,10 @@ class FreeWay:
             theta_i = self.VSpace['Inputs']['theta',i]
             
             ### Force Ve to match:
-            #rho_i   = self.VSpace['States']['rho',  i] 
-            #Ve_i    = self.VSpace['Inputs']['Ve',   i]
-            #Ve_arg  = -(1/a)*theta_i*(rho_i/rho_cr)**a
-            #Lift.append(Ve_i - vfree*exp(Ve_arg))           
+            rho_i   = self.VSpace['States']['rho',  i] 
+            Ve_i    = self.VSpace['Inputs']['Ve',   i]
+            Ve_arg  = -(1/a)*theta_i*(rho_i/rho_cr)**a
+            Lift.append(Ve_i - vfree*exp(Ve_arg))           
             
             Lift.append( theta_i - (1+alpha_i)**a )
             Lift = _CreateFunc([self.VSpace['Inputs'],self.VSpace['States'],self.Param],[veccat(Lift)])
@@ -395,7 +395,7 @@ class FreeWay:
         EP = struct_msym(EPList)
         return EP
     
-    def BuildMHE(self, Horizon = 1, SimTime = 1, Tol = 1e-3):
+    def BuildMHE(self, Horizon = 1, SimTime = 1, Sampling = 1, Tol = 1e-3):
         """
         Construct the MHE problem. Specify your horizon lengths as Horizon = ...
         """
@@ -404,7 +404,8 @@ class FreeWay:
         else:
             print "Warning, no horizon specified. Default value is 1 !!"
         
-        self.SimTime = SimTime + Horizon
+        self.SimTime  = SimTime + Horizon
+        self.Sampling = Sampling
         
         NumElement = {'States': Horizon, 'Inputs' : Horizon-1}
         if ('Slacks' in self.VSpace.keys()):
@@ -724,14 +725,19 @@ class FreeWay:
         #    EPMHE['Weight',:,key,:] = Q[key]
             
         #Attribute weight only on the genuine measurement points 
-        #MeasTimes = np.mod(np.arange(time,time+self.Horizon,self.Sampling),self.Horizon).tolist()
+        MeasTimes  = np.mod(np.arange(-time,self.Horizon-time,self.Sampling),self.Horizon).tolist()
+        Boundaries = [0,self.NumSegment-1] 
         #print MeasTimes
-        
-        MeasTimes = [k for k in range(self.Horizon)]
+        #raw_input()
+        #MeasTimes = [k for k in range(self.Horizon)]
         for k in MeasTimes:
             for key in self.Weight.keys():
-                EPMHE['Weight',k,key,:] = Q[key]
+                EPMHE['Weight',k,key,:] = Q[key]*self.Sampling
         
+        for i in Boundaries:
+            for key in self.Weight.keys():
+                EPMHE['Weight',:,key,i] = Q[key]*self.Sampling
+    
         return initMHE, EPMHE, lbV, ubV
     
     def SolveMHE(self, EP = [], lbV = [], ubV = [], init = []):

@@ -38,7 +38,9 @@ from TrafficFlowRealData import *
 
 #DataMATLAB = scipy.io.loadmat('MatlabSim')
 
-Horizon = 20
+Horizon      = 21
+DataSampling = 7
+
 T = FreeWay(Path = 'incident data_correct VMS', Meas = ['rho','v'], Slacks = ['Salpha', 'Sbeta'], ExtParam = ['Ve_max'])
 
 SimTime = 1500
@@ -124,7 +126,7 @@ for key in Costs.keys():
 T.setIneqConst(Const)
 T.setIneqConst(Const, Type = 'Arrival')
 
-T.BuildMHE(Horizon = Horizon, SimTime = SimTime, Tol = 1e-8)
+T.BuildMHE(Horizon = Horizon, SimTime = SimTime, Sampling = DataSampling, Tol = 1e-8)
 
 
 #Assign initial Data and Parameters

@@ -41,5 +41,16 @@ for k = 1:Nhorizon-1
     end
 end
 
-P = [alpha;beta];
+P = [alpha(1,2:Nsegment-1);beta(1,2:Nsegment-1)];
 dCdP = jacobian(C,P);
+return
+for k = 1:Nhorizon
+    for i = 1:Nsegment
+        rho(k,i) = 20;
+          v(k,i) = 100;
+      alpha(k,i) = 0;
+       beta(k,i) = 1;
+    end
+end
+
+eval(dCdP)
