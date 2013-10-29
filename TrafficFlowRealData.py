@@ -143,7 +143,8 @@ class FreeWay:
         
         #Build structure to hold the data (will merge into EP)
         if not(Meas == []):
-            self.Meas = self._StructBuilder(Meas)
+            self.Meas   = self._StructBuilder(Meas)
+            self.Weight = self._StructBuilder(Meas)
         else:
             print "WARNING: NO DATA PROVIDED"
             
@@ -264,6 +265,7 @@ class FreeWay:
             
         listFuncInput.append(self.Param)
         listFuncInput.append(self.Meas)
+        listFuncInput.append(self.Weight)
         
         if hasattr(self,'ExtParam'):
             listFuncInput.append(self.ExtParam)
@@ -332,6 +334,7 @@ class FreeWay:
 
         StageInputList.append(self.EP['Param'])
         StageInputList.append(self.EP['Meas', k])
+        StageInputList.append(self.EP['Weight', k])
         
         if ('ExtParam' in self.EP.keys()):
             StageInputList.append(self.EP['ExtParam',k])
@@ -376,16 +379,14 @@ class FreeWay:
                 print "Stage Constraint Detected, build."
                 [AppendConst] = self._StageConst.call(   StageInputList)
                 IneqConst.append( AppendConst )
-        
-
-        
-        
+         
         return Cost, IneqConst
     
     def _CreateEPStruct(self, TimeHorizon):
         EPList = [
-                    entry('Param', struct = self.Param),
-                    entry('Meas',  struct = self.Meas,      repeat = TimeHorizon)
+                    entry('Param',  struct = self.Param),
+                    entry('Meas',   struct = self.Meas,      repeat = TimeHorizon),
+                    entry('Weight', struct = self.Weight,    repeat = TimeHorizon)
                   ]
         
         if hasattr(self,'ExtParam'):
@@ -667,7 +668,7 @@ class FreeWay:
         
         return Data, EP
     
-    def PassMHEData(self,Data = [], EP = [], time = 0, ExtParam = []):
+    def PassMHEData(self,Data = [], EP = [], time = 0, ExtParam = [], Q = []):
         """
         Assign data to the MHE solver
         """
@@ -718,6 +719,18 @@ class FreeWay:
         #        if np.isnan(VeBound):
         #            VeBound = 200.
         #        ubV['Inputs',k,'Ve',i] = VeBound
+        
+        #for key in self.Weight.keys():
+        #    EPMHE['Weight',:,key,:] = Q[key]
+            
+        #Attribute weight only on the genuine measurement points 
+        #MeasTimes = np.mod(np.arange(time,time+self.Horizon,self.Sampling),self.Horizon).tolist()
+        #print MeasTimes
+        
+        MeasTimes = [k for k in range(self.Horizon)]
+        for k in MeasTimes:
+            for key in self.Weight.keys():
+                EPMHE['Weight',k,key,:] = Q[key]
         
         return initMHE, EPMHE, lbV, ubV
     

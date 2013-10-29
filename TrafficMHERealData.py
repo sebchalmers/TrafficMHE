@@ -36,7 +36,7 @@ import TrafficFlowRealData
 reload(TrafficFlowRealData)
 from TrafficFlowRealData import *
 
-DataMATLAB = scipy.io.loadmat('MatlabSim')
+#DataMATLAB = scipy.io.loadmat('MatlabSim')
 
 Horizon = 20
 T = FreeWay(Path = 'incident data_correct VMS', Meas = ['rho','v'], Slacks = ['Salpha', 'Sbeta'], ExtParam = ['Ve_max'])
@@ -97,8 +97,8 @@ for key in Costs.keys():
             
         if key == 'Fit':
             #Measurement fitting
-            Costs[key] += Q['rho']*(T.VSpace['States']['rho',i] - T.Meas['rho',i])**2  
-            Costs[key] += Q[  'v']*(T.VSpace['States']['v',  i] - T.Meas['v',  i])**2 
+            Costs[key] += T.Weight['rho',i]*(T.VSpace['States']['rho',i] - T.Meas['rho',i])**2  
+            Costs[key] += T.Weight['v',  i]*(T.VSpace['States']['v',  i] - T.Meas['v',  i])**2 
 
         if key == 'Stage':
             #Correlation alpha-beta     
@@ -142,7 +142,7 @@ print "------------------------"
 start = timer.time()
 #################################
 
-init, EP, lbV, ubV = T.PassMHEData(Data = Data, EP = EPData, ExtParam = TrafficParameters, time = 0)
+init, EP, lbV, ubV = T.PassMHEData(Data = Data, EP = EPData, ExtParam = TrafficParameters, time = 0, Q = Q)
 
 
 MHETraj = T.VSim()
@@ -232,7 +232,7 @@ for time in range(SimTime):
     MHETraj[...,time] = X[...,0]
     #QP = T.PrepareQP(T.Solver, Primal = X, Adjoint = Mu, EP = EP, lbV = lbV, ubV = ubV)
     
-    _ , EP, lbV, ubV = T.PassMHEData(Data = Data, EP = EPData, ExtParam = TrafficParameters, time = time+1)
+    _ , EP, lbV, ubV = T.PassMHEData(Data = Data, EP = EPData, ExtParam = TrafficParameters, time = time+1, Q = Q)
     init   , EP           = T.Shift(X, EP)
 
 elapsed = (timer.time() - start)
@@ -281,11 +281,11 @@ for i in range(T.NumSegment):
     plt.ylim([-0.1,1.1])
     plt.grid()
     plt.legend(loc = 0)
-    plt.savefig(Path+'/Segment'+str(i)+'_Horizon'+ str(Horizon)+'.eps',format='eps')
+    #plt.savefig(Path+'/Segment'+str(i)+'_Horizon'+ str(Horizon)+'.eps',format='eps')
     
 plt.figure(43)
 plt.plot(CostMHELog)
-plt.savefig(Path+'/MHECost_Horizon'+ str(Horizon)+'.eps',format='eps')
+#plt.savefig(Path+'/MHECost_Horizon'+ str(Horizon)+'.eps',format='eps')
 
 plt.figure(99)
 plt.plot(StatusLog, linestyle = 'none', marker = '.',color = 'k')
